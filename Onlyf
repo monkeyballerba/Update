@@ -4,13 +4,7 @@
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-
--- Ensure this is a LocalScript
 local player = Players.LocalPlayer
-if not player then
-    warn("[AutoJoin] This script must be run as a LocalScript.")
-    return
-end
 
 -- ✅ Settings
 local MIN_MS = 3000000 -- 3M/s
@@ -18,6 +12,7 @@ local MIN_MS = 3000000 -- 3M/s
 -- Gui Setup
 local gui = Instance.new("ScreenGui")
 gui.Name = "PeakHubAutojoinerGui"
+gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
@@ -112,11 +107,11 @@ end
 
 local function parseMoney(str)
     if not str then return 0 end
+    str = tostring(str)
     str = str:gsub("%s", ""):gsub("%$", ""):gsub("/s", "")
     local num, suffix = str:match("(%d+%.?%d*)([MK]?)")
     num = tonumber(num)
     if not num then return 0 end
-
     if suffix == "M" then
         return num * 1000000
     elseif suffix == "K" then
@@ -126,34 +121,22 @@ local function parseMoney(str)
     end
 end
 
--- WebSocket check and connect with retry
-if not WebSocket then
-    warn("[AutoJoin] Your executor does not support WebSocket.")
+-- WebSocket check
+if not WebSocket or not WebSocket.connect then
+    warn("[AutoJoin] Your executor does not support WebSocket. Please use a compatible executor.")
     return
 end
 
-local ws = nil
-local wsConnected = false
-local reconnecting = false
-
-local function connectWebSocket()
-    local conn, err = WebSocket.connect("ws://5.255.97.147:6767/script")
-    if not conn then
-        warn("[AutoJoin] WebSocket connection failed:", tostring(err))
-        return nil
-    end
-    print("[AutoJoin] WebSocket connected.")
-    wsConnected = true
-    return conn
+local ws, err = WebSocket.connect("ws://5.255.97.147:6767/script")
+if not ws then
+    warn("[AutoJoin] WebSocket Error: " .. tostring(err))
+    return
 end
 
+-- Auto-join state
 local running = false
-local debounce = false
 
 button.MouseButton1Click:Connect(function()
-    if debounce then return end
-    debounce = true
-
     running = not running
     if running then
         button.Text = "Stop"
@@ -164,21 +147,14 @@ button.MouseButton1Click:Connect(function()
         button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
         print("[AutoJoin] Stopped")
     end
-
-    task.wait(0.3) -- debounce delay
-    debounce = false
 end)
 
--- WebSocket message handler with error handling and reconnect
-local function onMessage(msg)
-    print("[AutoJoin] Received message:", msg)
+-- WebSocket handler
+ws.OnMessage:Connect(function(msg)
     local success, data = pcall(function()
         return HttpService:JSONDecode(msg)
     end)
-    if not success or type(data) ~= "table" then
-        warn("[AutoJoin] Failed to decode JSON or invalid data.")
-        return
-    end
+    if not success or type(data) ~= "table" then return end
 
     if running and data.type == "server_update" and data.data and data.data.join_script then
         local moneyStr = data.data.money or "$0/s"
@@ -186,47 +162,20 @@ local function onMessage(msg)
 
         if moneyVal >= MIN_MS then
             print("[AutoJoin] Joining server with "..moneyStr)
-            local func, err = loadstring(data.data.join_script)
+            local func, loadErr = loadstring(data.data.join_script)
             if func then
                 local ok, err2 = pcall(func)
                 if not ok then
-                    warn("[AutoJoin] Error running join script:", err2)
+                    warn("[AutoJoin] Error running join script: "..tostring(err2))
                 end
             else
-                warn("[AutoJoin] Failed to load join script:", err)
+                warn("[AutoJoin] Failed to load join script: "..tostring(loadErr))
             end
         else
             print("[AutoJoin] Skipped server "..moneyStr.." < Min "..formatMoney(MIN_MS))
         end
     end
-end
-
-local function onClose(code, reason)
-    warn(string.format("[AutoJoin] WebSocket closed. Code: %s Reason: %s", tostring(code), tostring(reason)))
-    wsConnected = false
-    if reconnecting then return end
-    reconnecting = true
-    -- Attempt to reconnect every 5 seconds until success
-    while not wsConnected do
-        print("[AutoJoin] Attempting to reconnect WebSocket...")
-        ws = connectWebSocket()
-        if ws then
-            ws.OnMessage:Connect(onMessage)
-            ws.OnClose:Connect(onClose)
-            wsConnected = true
-        else
-            task.wait(5)
-        end
-    end
-    reconnecting = false
-end
-
-ws = connectWebSocket()
-if not ws then
-    return
-end
-ws.OnMessage:Connect(onMessage)
-ws.OnClose:Connect(onClose)
+end)
 
 -- Minimize / Restore functionality
 minimize.MouseButton1Click:Connect(function()
