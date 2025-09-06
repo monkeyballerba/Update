@@ -1,5 +1,4 @@
--- Peak Hub - Autojoiner (WebSocket Edition)
--- Joins servers 3M/s and up
+-- Peak Hub - Autojoiner (WebSocket Edition, Auto-Reconnect)
 
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
@@ -8,6 +7,7 @@ local player = Players.LocalPlayer
 
 -- ✅ Settings
 local MIN_MS = 3000000 -- 3M/s
+local RECONNECT_DELAY = 5 -- seconds
 
 -- Gui Setup
 local gui = Instance.new("ScreenGui")
@@ -20,12 +20,8 @@ frame.Size = UDim2.new(0, 250, 0, 150)
 frame.Position = UDim2.new(0.5, -125, 0.5, -75)
 frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 15)
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 15)
-UICorner.Parent = frame
-
--- Title
 local title = Instance.new("TextLabel")
 title.Text = "Peak Hub - Autojoiner"
 title.Size = UDim2.new(1, -40, 0, 40)
@@ -37,7 +33,6 @@ title.TextSize = 18
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = frame
 
--- Minimize button
 local minimize = Instance.new("TextButton")
 minimize.Size = UDim2.new(0, 30, 0, 30)
 minimize.Position = UDim2.new(1, -35, 0, 5)
@@ -47,12 +42,8 @@ minimize.TextColor3 = Color3.fromRGB(255, 255, 255)
 minimize.Font = Enum.Font.GothamBold
 minimize.TextSize = 22
 minimize.Parent = frame
+Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
-local miniCorner = Instance.new("UICorner")
-miniCorner.CornerRadius = UDim.new(0, 8)
-miniCorner.Parent = minimize
-
--- Start / Stop button
 local button = Instance.new("TextButton")
 button.Size = UDim2.new(0.8, 0, 0.3, 0)
 button.Position = UDim2.new(0.1, 0, 0.5, 0)
@@ -62,12 +53,8 @@ button.TextColor3 = Color3.fromRGB(255, 255, 255)
 button.Font = Enum.Font.GothamBold
 button.TextSize = 18
 button.Parent = frame
+Instance.new("UICorner", button).CornerRadius = UDim.new(0, 10)
 
-local buttonCorner = Instance.new("UICorner")
-buttonCorner.CornerRadius = UDim.new(0, 10)
-buttonCorner.Parent = button
-
--- Discord text
 local info = Instance.new("TextLabel")
 info.Text = "discord.gg/PeakHub"
 info.Size = UDim2.new(1, 0, 0, 30)
@@ -78,7 +65,6 @@ info.Font = Enum.Font.Gotham
 info.TextSize = 14
 info.Parent = frame
 
--- Restore button setup (hidden initially)
 local restore = Instance.new("TextButton")
 restore.Size = UDim2.new(0, 60, 0, 30)
 restore.Position = UDim2.new(0, 10, 0, 10)
@@ -89,10 +75,7 @@ restore.Font = Enum.Font.GothamBold
 restore.TextSize = 22
 restore.Visible = false
 restore.Parent = gui
-
-local restoreCorner = Instance.new("UICorner")
-restoreCorner.CornerRadius = UDim.new(0, 8)
-restoreCorner.Parent = restore
+Instance.new("UICorner", restore).CornerRadius = UDim.new(0, 8)
 
 -- Helpers
 local function formatMoney(num)
@@ -107,8 +90,7 @@ end
 
 local function parseMoney(str)
     if not str then return 0 end
-    str = tostring(str)
-    str = str:gsub("%s", ""):gsub("%$", ""):gsub("/s", "")
+    str = tostring(str):gsub("%s", ""):gsub("%$", ""):gsub("/s", "")
     local num, suffix = str:match("(%d+%.?%d*)([MK]?)")
     num = tonumber(num)
     if not num then return 0 end
@@ -121,36 +103,27 @@ local function parseMoney(str)
     end
 end
 
--- WebSocket check
-if not WebSocket or not WebSocket.connect then
-    warn("[AutoJoin] Your executor does not support WebSocket. Please use a compatible executor.")
+-- WebSocket detection
+local wsLib = nil
+if WebSocket and WebSocket.connect then
+    wsLib = WebSocket
+elseif syn and syn.websocket then
+    wsLib = syn.websocket
+elseif websocket and websocket.connect then
+    wsLib = websocket
+end
+
+if not wsLib then
+    warn("[AutoJoin] No WebSocket support in executor.")
     return
 end
 
-local ws, err = WebSocket.connect("ws://5.255.97.147:6767/script")
-if not ws then
-    warn("[AutoJoin] WebSocket Error: " .. tostring(err))
-    return
-end
-
--- Auto-join state
+-- State
 local running = false
+local ws = nil
 
-button.MouseButton1Click:Connect(function()
-    running = not running
-    if running then
-        button.Text = "Stop"
-        button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-        print("[AutoJoin] Started (filter: "..formatMoney(MIN_MS).." and up)")
-    else
-        button.Text = "Start"
-        button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
-        print("[AutoJoin] Stopped")
-    end
-end)
-
--- WebSocket handler
-ws.OnMessage:Connect(function(msg)
+-- Handlers
+local function handleMessage(msg)
     local success, data = pcall(function()
         return HttpService:JSONDecode(msg)
     end)
@@ -161,29 +134,68 @@ ws.OnMessage:Connect(function(msg)
         local moneyVal = parseMoney(moneyStr)
 
         if moneyVal >= MIN_MS then
-            print("[AutoJoin] Joining server with "..moneyStr)
-            local func, loadErr = loadstring(data.data.join_script)
+            print("[AutoJoin] Joining server with " .. moneyStr)
+            local func, loadErr = loadstring(data.data.join_script, "AutoJoinerScript")
             if func then
                 local ok, err2 = pcall(func)
                 if not ok then
-                    warn("[AutoJoin] Error running join script: "..tostring(err2))
+                    warn("[AutoJoin] Error running join script: " .. tostring(err2))
                 end
             else
-                warn("[AutoJoin] Failed to load join script: "..tostring(loadErr))
+                warn("[AutoJoin] Failed to load join script: " .. tostring(loadErr))
             end
         else
-            print("[AutoJoin] Skipped server "..moneyStr.." < Min "..formatMoney(MIN_MS))
+            print("[AutoJoin] Skipped server " .. moneyStr .. " < Min " .. formatMoney(MIN_MS))
         end
+    end
+end
+
+-- Connection logic
+local function connectWS()
+    if ws then pcall(function() ws:Close() end) end
+    print("[AutoJoin] Connecting to WebSocket...")
+
+    local newWs, err = wsLib.connect("ws://5.255.97.147:6767/script")
+    if not newWs then
+        warn("[AutoJoin] Connection failed: " .. tostring(err))
+        task.delay(RECONNECT_DELAY, connectWS)
+        return
+    end
+    ws = newWs
+
+    ws.OnMessage:Connect(handleMessage)
+
+    ws.OnClose:Connect(function()
+        warn("[AutoJoin] WebSocket closed. Reconnecting in " .. RECONNECT_DELAY .. "s...")
+        task.delay(RECONNECT_DELAY, connectWS)
+    end)
+
+    print("[AutoJoin] Connected successfully.")
+end
+
+-- Start / Stop button
+button.MouseButton1Click:Connect(function()
+    running = not running
+    if running then
+        button.Text = "Stop"
+        button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+        print("[AutoJoin] Started (filter: " .. formatMoney(MIN_MS) .. " and up)")
+    else
+        button.Text = "Start"
+        button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
+        print("[AutoJoin] Stopped")
     end
 end)
 
--- Minimize / Restore functionality
+-- Minimize / Restore
 minimize.MouseButton1Click:Connect(function()
     frame.Visible = false
     restore.Visible = true
 end)
-
 restore.MouseButton1Click:Connect(function()
     frame.Visible = true
     restore.Visible = false
 end)
+
+-- Initial connect
+connectWS()
