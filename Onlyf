@@ -1,313 +1,538 @@
--- Peak Hub - Autojoiner (WebSocket Edition)
--- Joins servers 3M/s and up
+--=========================================================
+-- ZZZZ HUB v0.4 - Enhanced Tabbed UI with Fixes
+--=========================================================
+-- Optimized UI with tabbed navigation, fixed variable duplication, and improved error handling
 
-local TeleportService = game:GetService("TeleportService")
+--// Services
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+
 local player = Players.LocalPlayer
+local username = player.Name
 
--- ✅ Settings
-local MIN_MS = 3000000 -- 3M/s
+--// Configuration
+local CONFIG = {
+    Colors = {
+        Background = Color3.fromRGB(20, 20, 20),
+        Sidebar = Color3.fromRGB(24, 24, 24),
+        Panel = Color3.fromRGB(32, 32, 32),
+        Stroke = Color3.fromRGB(60, 60, 60),
+        Text = Color3.fromRGB(255, 255, 255),
+        SubText = Color3.fromRGB(180, 180, 180),
+        Accent = Color3.fromRGB(16, 157, 227),
+        Hover = Color3.fromRGB(50, 50, 50),
+        Danger = Color3.fromRGB(240, 80, 80),
+        SwitchOff = Color3.fromRGB(80, 80, 80),
+        SwitchOn = Color3.fromRGB(16, 157, 227),
+        SectionHeader = Color3.fromRGB(45, 45, 45),
+        ESPHighlight = Color3.fromRGB(255, 0, 0), -- ESP-specific highlight color
+    },
+    UI = {
+        CornerRadius = UDim.new(0, 8),
+        AnimationSpeed = 0.25,
+        FrameSize = UDim2.new(0, 600, 0, 400),
+        SidebarWidth = 150,
+        MinimizedSize = UDim2.new(0, 600, 0, 50),
+    },
+    ESP = {
+        UpdateInterval = 0.1,
+    },
+    DiscordLink = "https://discord.gg/Jg36hRPevv",
+}
 
--- Gui Setup
-local gui = Instance.new("ScreenGui")
-gui.Parent = player:WaitForChild("PlayerGui")
-
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 250, 0, 150)
-frame.Position = UDim2.new(0.5, -125, 0.5, -75)
-frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-frame.Parent = gui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 15)
-UICorner.Parent = frame
-
--- Title
-local title = Instance.new("TextLabel")
-title.Text = "Peak Hub - Autojoiner"
-title.Size = UDim2.new(1, -40, 0, 40)
-title.Position = UDim2.new(0, 5, 0, 5)
-title.BackgroundTransparency = 1
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 18
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = frame
-
--- Minimize button
-local minimize = Instance.new("TextButton")
-minimize.Size = UDim2.new(0, 30, 0, 30)
-minimize.Position = UDim2.new(1, -35, 0, 5)
-minimize.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
-minimize.Text = "-"
-minimize.TextColor3 = Color3.fromRGB(255, 255, 255)
-minimize.Font = Enum.Font.GothamBold
-minimize.TextSize = 22
-minimize.Parent = frame
-
-local miniCorner = Instance.new("UICorner")
-miniCorner.CornerRadius = UDim.new(0, 8)
-miniCorner.Parent = minimize
-
--- Start / Stop button
-local button = Instance.new("TextButton")
-button.Size = UDim2.new(0.8, 0, 0.3, 0)
-button.Position = UDim2.new(0.1, 0, 0.5, 0)
-button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
-button.Text = "Start"
-button.TextColor3 = Color3.fromRGB(255, 255, 255)
-button.Font = Enum.Font.GothamBold
-button.TextSize = 18
-button.Parent = frame
-
-local buttonCorner = Instance.new("UICorner")
-buttonCorner.CornerRadius = UDim.new(0, 10)
-buttonCorner.Parent = button
-
--- Discord text
-local info = Instance.new("TextLabel")
-info.Text = "discord.gg/PeakHub"
-info.Size = UDim2.new(1, 0, 0, 30)
-info.Position = UDim2.new(0, 0, 1, -30)
-info.BackgroundTransparency = 1
-info.TextColor3 = Color3.fromRGB(180, 180, 180)
-info.Font = Enum.Font.Gotham
-info.TextSize = 14
-info.Parent = frame
-
--- Restore button setup (hidden initially)
-local restore = Instance.new("TextButton")
-restore.Size = UDim2.new(0, 60, 0, 30)
-restore.Position = UDim2.new(0, 10, 0, 10)
-restore.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
-restore.Text = "+"
-restore.TextColor3 = Color3.fromRGB(255, 255, 255)
-restore.Font = Enum.Font.GothamBold
-restore.TextSize = 22
-restore.Visible = false
-restore.Parent = gui
-
-local restoreCorner = Instance.new("UICorner")
-restoreCorner.CornerRadius = UDim.new(0, 8)
-restoreCorner.Parent = restore
-
--- Helpers
-local function formatMoney(num)
-    return string.format("%.1fM", num / 1000000)
-end
-
-local function parseMoney(str)
-    if not str then return 0 end
-    
-    -- Remove any non-alphanumeric characters except decimal points and letters
-    str = tostring(str):gsub("[^%d%.%a]", "")
-    
-    local num, suffix = str:match("(%d+%.?%d*)([MK]?)")
-    num = tonumber(num)
-    if not num then return 0 end
-
-    if suffix == "M" then
-        return num * 1000000
-    elseif suffix == "K" then
-        return num * 1000
-    else
-        return num
-    end
-end
-
--- Auto-join state
-local running = false
-local ws = nil
-
--- Function to safely connect to WebSocket
-local function connectWebSocket()
-    -- Check if WebSocket is supported
-    if not WebSocket then
-        warn("[AutoJoin] Your executor does not support WebSocket.")
-        return nil
-    end
-
-    -- Close existing connection if any
-    if ws then
-        pcall(function() ws:Close() end)
-        ws = nil
-    end
-
-    -- Try to connect
-    local success, result = pcall(function()
-        return WebSocket.connect("ws://5.255.97.147:6767/script")
+--=========================================================
+-- Safe UI Parent
+--=========================================================
+local function getSafeUiParent()
+    local success, hidden = pcall(function()
+        return (gethui and gethui()) or (get_hidden_ui and get_hidden_ui()) or CoreGui
     end)
-    
-    if success and result then
-        print("[AutoJoin] WebSocket connected successfully")
-        return result
-    else
-        warn("[AutoJoin] WebSocket Error:", tostring(result))
-        return nil
+    if not success then
+        warn("Failed to get hidden UI parent: using CoreGui or PlayerGui")
+        return CoreGui or player:WaitForChild("PlayerGui")
     end
+    return hidden
+end
+local safeui = getSafeUiParent()
+
+--=========================================================
+-- Character Essentials
+--=========================================================
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character and character:WaitForChild("Humanoid", 5)
+local humanoidRootPart = character and character:WaitForChild("HumanoidRootPart", 5)
+
+-- Packages and Events
+local UseItemEvent
+local success, result = pcall(function()
+    local packages = ReplicatedStorage:WaitForChild("Packages", 5)
+    if packages then
+        UseItemEvent = packages:FindFirstChild("Net") and packages.Net:FindFirstChild("RE/UseItem")
+    end
+    return UseItemEvent
+end)
+if not success or not result then
+    warn("Failed to load packages or UseItemEvent: unsupported or missing")
 end
 
--- Function to handle WebSocket messages
-local function handleWebSocketMessage(msg)
-    local success, data = pcall(function()
-        return HttpService:JSONDecode(msg)
-    end)
-    
-    if not success or type(data) ~= "table" then 
-        warn("[AutoJoin] Failed to parse WebSocket message")
-        return 
-    end
-
-    if running and data.type == "server_update" and data.data and data.data.join_script then
-        local moneyStr = data.data.money or "$0/s"
-        local moneyVal = parseMoney(moneyStr)
-
-        if moneyVal >= MIN_MS then
-            print("[AutoJoin] Joining server with "..moneyStr)
-            
-            -- Use a pcall to safely execute the join script
-            local success, err = pcall(function()
-                local func = loadstring(data.data.join_script)
-                if func then
-                    func()
-                else
-                    error("Failed to load join script")
+--=========================================================
+-- Helper Functions
+--=========================================================
+local function findPlayerPlot()
+    local success, plot = pcall(function()
+        local plotsFolder = workspace:FindFirstChild("Plots")
+        if not plotsFolder then return nil end
+        for _, plot in ipairs(plotsFolder:GetChildren()) do
+            local plotSign = plot:FindFirstChild("PlotSign")
+            if plotSign then
+                local surfaceGui = plotSign:FindFirstChild("SurfaceGui")
+                local frame = surfaceGui and surfaceGui:FindFirstChild("Frame")
+                local textLabel = frame and frame:FindFirstChild("TextLabel")
+                if textLabel and textLabel:IsA("TextLabel") and string.find(textLabel.Text, username) then
+                    return plot
                 end
-            end)
-            
-            if not success then
-                warn("[AutoJoin] Failed to execute join script:", err)
             end
-        else
-            print("[AutoJoin] Skipped server "..moneyStr.." < Min "..formatMoney(MIN_MS))
         end
+        return nil
+    end)
+    if not success or not plot then
+        warn("Could not find player plot: unsupported or error occurred")
+        return nil
+    end
+    return plot
+end
+local playerPlot = findPlayerPlot()
+
+local function findPlayerSpawnPart()
+    local plot = findPlayerPlot()
+    if not plot then return nil end
+    local success, spawnPart = pcall(function()
+        local part = plot:FindFirstChild("Spawn")
+        return part and part:IsA("BasePart") and part or nil
+    end)
+    if not success or not spawnPart then
+        warn("Spawn part not found in player's plot")
+        return nil
+    end
+    return spawnPart
+end
+
+local function findAllSpawnParts()
+    local success, spawnParts = pcall(function()
+        local plotsFolder = workspace:FindFirstChild("Plots")
+        if not plotsFolder then return {} end
+        local result = {}
+        for _, plot in ipairs(plotsFolder:GetChildren()) do
+            local spawnPart = plot:FindFirstChild("Spawn")
+            if spawnPart and spawnPart:IsA("BasePart") then
+                table.insert(result, spawnPart)
+            end
+        end
+        return result
+    end)
+    if not success then
+        warn("Failed to find spawn parts")
+        return {}
+    end
+    return spawnParts
+end
+
+local function findClosestSpawnPart()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = character.HumanoidRootPart
+    local success, closest = pcall(function()
+        local spawnParts = findAllSpawnParts()
+        local minDist = math.huge
+        local closestPart = nil
+        for _, spawn in ipairs(spawnParts) do
+            local dist = (hrp.Position - spawn.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                closestPart = spawn
+            end
+        end
+        return closestPart
+    end)
+    if not success or not closest then
+        warn("Failed to find closest spawn part")
+        return nil
+    end
+    return closest
+end
+
+local function findClosestLaserPart()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = character.HumanoidRootPart
+    local success, closest = pcall(function()
+        local plotsFolder = workspace:FindFirstChild("Plots")
+        if not plotsFolder then return nil end
+        local minDist = math.huge
+        local closestPart = nil
+        for _, plot in ipairs(plotsFolder:GetChildren()) do
+            local laserHitbox = plot:FindFirstChild("LaserHitbox")
+            local secondFloor = laserHitbox and laserHitbox:FindFirstChild("SecondFloor")
+            if secondFloor and secondFloor:IsA("BasePart") then
+                local dist = (hrp.Position - secondFloor.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    closestPart = secondFloor
+                end
+            end
+        end
+        return closestPart
+    end)
+    if not success or not closest then
+        warn("Failed to find closest laser part")
+        return nil
+    end
+    return closest
+end
+
+local function findClosestDecoration(decorationId)
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = character.HumanoidRootPart
+    local success, closest = pcall(function()
+        local plotsFolder = workspace:FindFirstChild("Plots")
+        if not plotsFolder then return nil end
+        local minDist = math.huge
+        local closestPart = nil
+        for _, plot in ipairs(plotsFolder:GetChildren()) do
+            local decorations = plot:FindFirstChild("Decorations")
+            if decorations then
+                local decoration = decorations:FindFirstChild(tostring(decorationId))
+                if not decoration then
+                    local kids = decorations:GetChildren()
+                    if #kids >= decorationId then decoration = kids[decorationId] end
+                end
+                if decoration and decoration:IsA("BasePart") then
+                    local dist = (hrp.Position - decoration.Position).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        closestPart = decoration
+                    end
+                end
+            end
+        end
+        return closestPart
+    end)
+    if not success or not closest then
+        warn("Failed to find closest decoration for ID: " .. tostring(decorationId))
+        return nil
+    end
+    return closest
+end
+
+local function moveToPosition(targetPosition, onReached, speed, stopAtTarget)
+    if not character or not targetPosition or typeof(targetPosition) ~= "Vector3" then
+        if onReached then onReached(false) end
+        return
+    end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        if onReached then onReached(false) end
+        return
+    end
+
+    local success, _ = pcall(function()
+        local dist = (hrp.Position - targetPosition).Magnitude
+        if dist < 0.5 then
+            if stopAtTarget then hrp.CFrame = CFrame.new(targetPosition) end
+            if onReached then onReached(true) end
+            return
+        end
+
+        for _, obj in ipairs(hrp:GetChildren()) do
+            if obj:IsA("BodyVelocity") then obj:Destroy() end
+        end
+
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.P = 10000
+        bv.Velocity = (targetPosition - hrp.Position).Unit * speed
+        bv.Parent = hrp
+
+        local reached = false
+        local conn = RunService.Heartbeat:Connect(function()
+            if not hrp or not hrp.Parent or not bv.Parent then
+                bv:Destroy()
+                conn:Disconnect()
+                if onReached and not reached then onReached(false) end
+                return
+            end
+            local dir = (targetPosition - hrp.Position)
+            local dist = dir.Magnitude
+            if dist < (stopAtTarget and 0.1 or 5) then
+                reached = true
+                bv:Destroy()
+                if stopAtTarget then
+                    hrp.CFrame = CFrame.new(targetPosition)
+                    hrp.Velocity = Vector3.new(0, 0, 0)
+                    hrp.RotVelocity = Vector3.new(0, 0, 0)
+                    for _, obj in ipairs(hrp:GetChildren()) do
+                        if obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") or obj:IsA("BodyPosition") then
+                            obj:Destroy()
+                        end
+                    end
+                end
+                conn:Disconnect()
+                if onReached then onReached(true) end
+                return
+            end
+            bv.Velocity = dir.Unit * speed
+        end)
+
+        task.delay(5, function()
+            if not reached then
+                bv:Destroy()
+                conn:Disconnect()
+                if onReached then onReached(false) end
+            end
+        end)
+    end)
+    if not success then
+        warn("Move to position failed")
+        if onReached then onReached(false) end
     end
 end
 
--- Initialize WebSocket connection
-ws = connectWebSocket()
-if ws then
-    ws.OnMessage:Connect(handleWebSocketMessage)
-    
-    -- Handle WebSocket closure
-    ws.OnClose:Connect(function()
-        warn("[AutoJoin] WebSocket connection closed. Attempting to reconnect...")
-        -- Attempt to reconnect after a delay
-        task.wait(5)
-        ws = connectWebSocket()
-        if ws then
-            ws.OnMessage:Connect(handleWebSocketMessage)
+local function useLaserCape()
+    local success, result = pcall(function()
+        if not character then return false end
+        local hum = character:FindFirstChild("Humanoid")
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then return false end
+        local laserCape = player.Backpack:FindFirstChild("Laser Cape") or character:FindFirstChild("Laser Cape")
+        if not laserCape then return false end
+        if laserCape.Parent ~= character then
+            hum:EquipTool(laserCape)
+            task.wait(0.1)
+        end
+        if UseItemEvent then
+            UseItemEvent:FireServer(hrp.Position, hrp)
+            return true
+        end
+        return false
+    end)
+    if not success or not result then
+        warn("Failed to use Laser Cape")
+        return false
+    end
+    return result
+end
+
+local function isPlayerAtFirstFloor()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
+    local hrp = character.HumanoidRootPart
+    local success, result = pcall(function()
+        return math.abs(hrp.Position.Y - (-5)) < 1
+    end)
+    if not success then
+        warn("Failed to check first floor")
+        return false
+    end
+    return result
+end
+
+local function isPlayerAtSecondFloor()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
+    local hrp = character.HumanoidRootPart
+    local success, result = pcall(function()
+        return math.abs(hrp.Position.Y - 12.89) < 1
+    end)
+    if not success then
+        warn("Failed to check second floor")
+        return false
+    end
+    return result
+end
+
+local function moveToClosestSpawnThenOwnSpawn()
+    local success, _ = pcall(function()
+        local closest = findClosestSpawnPart()
+        if not closest then return end
+        moveToPosition(closest.Position, function(success)
+            if success then
+                task.wait(0.15)
+                local ownSpawn = findPlayerSpawnPart()
+                if ownSpawn then
+                    local spawnPos = ownSpawn.Position + Vector3.new(-10, -3, 0)
+                    moveToPosition(spawnPos, function(_)
+                        if character and character:FindFirstChild("HumanoidRootPart") then
+                            local hrp = character.HumanoidRootPart
+                            hrp.Velocity = Vector3.new(0, 0, 0)
+                            hrp.RotVelocity = Vector3.new(0, 0, 0)
+                        end
+                    end, 300, true)
+                end
+            end
+        end, 150, false)
+    end)
+    if not success then
+        warn("Failed to execute move to closest spawn")
+    end
+end
+
+local function teleportToLaserThenDecorationThenForwardThenSpawn()
+    local success, _ = pcall(function()
+        local laserPart = findClosestLaserPart()
+        if not laserPart then return end
+        moveToPosition(laserPart.Position, function(success)
+            if success then
+                task.wait(0.10)
+                local d14 = findClosestDecoration(14)
+                if d14 then
+                    moveToPosition(d14.Position, function(ok)
+                        if ok then
+                            local forwardPos = d14.Position + Vector3.new(-1, 0, 0) * 5.25
+                            moveToPosition(forwardPos, function(ok2)
+                                if ok2 then
+                                    task.wait(0.35)
+                                    local spawnPart = findPlayerSpawnPart()
+                                    if spawnPart then
+                                        local spawnPos = spawnPart.Position + Vector3.new(-6, 0, 0)
+                                        moveToPosition(spawnPos, function(_)
+                                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                                local hrp = character.HumanoidRootPart
+                                                hrp.Velocity = Vector3.new(0, 0, 0)
+                                                hrp.RotVelocity = Vector3.new(0, 0, 0)
+                                            end
+                                        end, 300, true)
+                                    end
+                                end
+                            end, 220, false)
+                        end
+                    end, 50, false)
+                end
+            end
+        end, 100, false)
+    end)
+    if not success then
+        warn("Failed to execute teleport sequence")
+    end
+end
+
+local function setInvisibility(on)
+    local success, _ = pcall(function()
+        if not character or not character:FindFirstChild("Humanoid") then return end
+        if on then
+            for _, v in pairs(character:GetChildren()) do
+                if v:IsA("BasePart") then
+                    sethiddenproperty(v, "NetworkIsSleeping", true)
+                end
+            end
+            sethiddenproperty(character.Humanoid, "OverrideDefaultCollisions", true)
+            replicatesignal(character.Humanoid.ServerBreakJoints)
+        else
+            for _, v in pairs(character:GetChildren()) do
+                if v:IsA("BasePart") then
+                    sethiddenproperty(v, "NetworkIsSleeping", false)
+                end
+            end
+            sethiddenproperty(character.Humanoid, "OverrideDefaultCollisions", false)
         end
     end)
-end
-
--- Start/Stop button functionality
-button.MouseButton1Click:Connect(function()
-    running = not running
-    if running then
-        button.Text = "Stop"
-        button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-        print("[AutoJoin] Started (filter: "..formatMoney(MIN_MS).." and up)")
-        
-        -- Try to reconnect if WebSocket is not connected
-        if not ws then
-            ws = connectWebSocket()
-            if ws then
-                ws.OnMessage:Connect(handleWebSocketMessage)
-            end
-        end
-    else
-        button.Text = "Start"
-        button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
-        print("[AutoJoin] Stopped")
-    end
-end)
-
--- Minimize / Restore functionality
-minimize.MouseButton1Click:Connect(function()
-    frame.Visible = false
-    restore.Visible = true
-end)
-
-restore.MouseButton1Click:Connect(function()
-    frame.Visible = true
-    restore.Visible = false
-end)
-
--- Clean up on script termination
-gui.Destroying:Connect(function()
-    if ws then
-        pcall(function() ws:Close() end)
-    end
-end)        return num * 1000000
-    elseif suffix == "K" then
-        return num * 1000
-    else
-        return num
+    if not success then
+        warn("Failed to " .. (on and "enable" or "disable") .. " invisibility")
     end
 end
 
--- WebSocket
-if not WebSocket then
-    warn("[AutoJoin] Your executor does not support WebSocket.")
-    return
-end
+--=========================================================
+-- UI Setup: Tabbed Navigation with Sidebar
+--=========================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ZZZZ_HUB"
+screenGui.DisplayOrder = 2^31 - 1
+screenGui.ResetOnSpawn = false
+screenGui.Parent = safeui
 
-local ws, err = WebSocket.connect("ws://5.255.97.147:6767/script")
-if not ws then
-    warn("[AutoJoin] WebSocket Error:", tostring(err))
-    return
-end
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "Main"
+mainFrame.Size = CONFIG.UI.FrameSize
+mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+mainFrame.BackgroundColor3 = CONFIG.Colors.Panel
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = CONFIG.UI.CornerRadius
+local mainStroke = Instance.new("UIStroke", mainFrame)
+mainStroke.Thickness = 1.5
+mainStroke.Color = CONFIG.Colors.Stroke
+mainStroke.Transparency = 0.2
 
--- Auto-join state
-local running = false
+local topBar = Instance.new("Frame")
+topBar.Name = "TopBar"
+topBar.Parent = mainFrame
+topBar.BackgroundColor3 = CONFIG.Colors.Background
+topBar.Size = UDim2.new(1, 0, 0, 50)
+topBar.BorderSizePixel = 0
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 8)
 
-button.MouseButton1Click:Connect(function()
-    running = not running
-    if running then
-        button.Text = "Stop"
-        button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-        print("[AutoJoin] Started (filter: "..formatMoney(MIN_MS).." - "..formatMoney(MAX_MS)..")")
-    else
-        button.Text = "Start"
-        button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
-        print("[AutoJoin] Stopped")
-    end
-end)
+local logo = Instance.new("ImageLabel")
+logo.Name = "Logo"
+logo.Parent = topBar
+logo.BackgroundTransparency = 1
+logo.Size = UDim2.new(0, 40, 0, 40)
+logo.Position = UDim2.new(0, 10, 0.5, -20)
+logo.Image = "rbxassetid://75526418442243"
+Instance.new("UICorner", logo).CornerRadius = UDim.new(0, 8)
 
--- WebSocket handler
-ws.OnMessage:Connect(function(msg)
-    local success, data = pcall(function()
-        return HttpService:JSONDecode(msg)
-    end)
-    if not success or type(data) ~= "table" then return end
+local titleHolder = Instance.new("Frame")
+titleHolder.Parent = topBar
+titleHolder.BackgroundTransparency = 1
+titleHolder.Position = UDim2.new(0, 60, 0, 0)
+titleHolder.Size = UDim2.new(1, -140, 1, 0)
 
-    if running and data.type == "server_update" and data.data and data.data.join_script then
-        local moneyStr = data.data.money or "$0/s"
-        local moneyVal = parseMoney(moneyStr)
+local title = Instance.new("TextLabel")
+title.Parent = titleHolder
+title.BackgroundTransparency = 1
+title.Text = "ZZZZ HUB"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+title.TextColor3 = CONFIG.Colors.Text
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Size = UDim2.new(1, 0, 0.6, 0)
+title.Position = UDim2.new(0, 0, 0, 5)
 
-        if moneyVal >= MIN_MS and moneyVal <= MAX_MS then
-            print("[AutoJoin] Joining server with "..moneyStr)
-            local func, err = loadstring(data.data.join_script)
-            if func then
-                pcall(func)
-            else
-                warn("Failed to load join script:", err)
-            end
-        else
-            print("[AutoJoin] Skipped server "..moneyStr.." (not in range)")
-        end
-    end
-end)
+local subtitle = Instance.new("TextLabel")
+subtitle.Parent = titleHolder
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "v0.4 â€¢ Free"
+subtitle.Font = Enum.Font.Gotham
+subtitle.TextSize = 12
+subtitle.TextColor3 = CONFIG.Colors.SubText
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.Size = UDim2.new(1, 0, 0.4, 0)
+subtitle.Position = UDim2.new(0, 0, 0.6, 0)
 
--- Minimize / Restore functionality
-minimize.MouseButton1Click:Connect(function()
-    frame.Visible = false
-    restore.Visible = true
-end)
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Parent = topBar
+minimizeBtn.BackgroundColor3 = CONFIG.Colors.Background
+minimizeBtn.Text = "âˆ’"
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 22
+minimizeBtn.TextColor3 = CONFIG.Colors.Text
+minimizeBtn.AutoButtonColor = false
+minimizeBtn.Size = UDim2.new(0, 40, 0, 40)
+minimizeBtn.Position = UDim2.new(1, -50, 0.5, -20)
+Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(0, 8)
 
-restore.MouseButton1Click:Connect(function()
-    frame.Visible = true
-    restore.Visible = false
-end)
+-- Sidebar
+local sidebar = Instance.new("Frame")
+sidebar.Name = "Sidebar"
+sidebar.Parent = mainFrame
+sidebar.BackgroundColor3 = CONFIG.Colors.Sidebar
+sidebar.Size = UDim2.new(0, CONFIG.UI.SidebarWidth, 1, -50)
+sidebar.Position = UDim2.new(0, 0, 0, 50)
+sidebar.BorderSizePixel = 0
+Instance.new("UIStroke", sidebar).Color = CONFIG.Colors.Stroke
+
+local sidebarLayout = Instance.new("UIListLayout")
+sidebarLayout.Parent = sidebar
+sidebarLayout.Padding = UDim.new(0, 8
