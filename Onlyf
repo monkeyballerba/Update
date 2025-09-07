@@ -1,111 +1,145 @@
-
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local LocalPlayer = game:GetService("Players").LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
+-- Gui Auto Joiner Example (10m+)
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
 
-local OrionLib = {
-	Elements = {},
-	ThemeObjects = {},
-	Connections = {},
-	Flags = {},
-	Themes = {
-		Default = {
-			Main = Color3.fromRGB(25, 25, 25),
-			Second = Color3.fromRGB(32, 32, 32),
-			Stroke = Color3.fromRGB(60, 60, 60),
-			Divider = Color3.fromRGB(60, 60, 60),
-			Text = Color3.fromRGB(240, 240, 240),
-			TextDark = Color3.fromRGB(150, 150, 150)
-		}
-	},
-	SelectedTheme = "Default",
-	Folder = nil,
-	SaveCfg = false
-}
+-- PlaceId for Steal a Brainrot
+local placeId = 109983668079237  
 
---Feather Icons https://github.com/evoincorp/lucideblox/tree/master/src/modules/util - Created by 7kayoh
-local Icons = {}
+-- Gui Setup
+local gui = Instance.new("ScreenGui")
+gui.Parent = player:WaitForChild("PlayerGui")
 
-local Success, Response = pcall(function()
-	Icons = HttpService:JSONDecode(game:HttpGetAsync("https://raw.githubusercontent.com/evoincorp/lucideblox/master/src/modules/util/icons.json")).icons
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 250, 0, 150)
+frame.Position = UDim2.new(0.5, -125, 0.5, -75)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+frame.Parent = gui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 15)
+UICorner.Parent = frame
+
+-- Title
+local title = Instance.new("TextLabel")
+title.Text = "Peak Hub - Autojoiner (10m+)"
+title.Size = UDim2.new(1, -40, 0, 40)
+title.Position = UDim2.new(0, 5, 0, 5)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = frame
+
+-- Minimize button
+local minimize = Instance.new("TextButton")
+minimize.Size = UDim2.new(0, 30, 0, 30)
+minimize.Position = UDim2.new(1, -35, 0, 5)
+minimize.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+minimize.Text = "-"
+minimize.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimize.Font = Enum.Font.GothamBold
+minimize.TextSize = 22
+minimize.Parent = frame
+
+local miniCorner = Instance.new("UICorner")
+miniCorner.CornerRadius = UDim.new(0, 8)
+miniCorner.Parent = minimize
+
+-- Start / Stop button
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0.8, 0, 0.3, 0)
+button.Position = UDim2.new(0.1, 0, 0.5, 0)
+button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
+button.Text = "Start"
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 18
+button.Parent = frame
+
+local buttonCorner = Instance.new("UICorner")
+buttonCorner.CornerRadius = UDim.new(0, 10)
+buttonCorner.Parent = button
+
+-- Discord text
+local info = Instance.new("TextLabel")
+info.Text = "discord.gg/PeakHub"
+info.Size = UDim2.new(1, 0, 0, 30)
+info.Position = UDim2.new(0, 0, 1, -30)
+info.BackgroundTransparency = 1
+info.TextColor3 = Color3.fromRGB(180, 180, 180)
+info.Font = Enum.Font.Gotham
+info.TextSize = 14
+info.Parent = frame
+
+-- Restore button setup (hidden initially)
+local restore = Instance.new("TextButton")
+restore.Size = UDim2.new(0, 60, 0, 30)
+restore.Position = UDim2.new(0, 10, 0, 10)
+restore.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+restore.Text = "+"
+restore.TextColor3 = Color3.fromRGB(255, 255, 255)
+restore.Font = Enum.Font.GothamBold
+restore.TextSize = 22
+restore.Visible = false
+restore.Parent = gui
+
+local restoreCorner = Instance.new("UICorner")
+restoreCorner.CornerRadius = UDim.new(0, 8)
+restoreCorner.Parent = restore
+
+-- 🔥 Server Fetcher (10m+ filter)
+local function find10mServer()
+    local url = "https://games.roblox.com/v1/games/"..placeId.."/servers/Public?limit=100"
+    local response = game:HttpGet(url)
+    local data = HttpService:JSONDecode(response)
+
+    for _, server in pairs(data.data) do
+        -- 🔑 Replace 'server.money' with correct stat if the API/game provides it
+        if server.money and server.money >= 10000000 then
+            return server.id
+        end
+    end
+    return nil
+end
+
+-- Auto-join loop logic
+local running = false
+
+button.MouseButton1Click:Connect(function()
+    if running then
+        running = false
+        button.Text = "Start"
+        button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
+    else
+        running = true
+        button.Text = "Stop"
+        button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+
+        while running do
+            local jobId = find10mServer()
+            if jobId then
+                TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
+            else
+                warn("⚠ No 10m+ server found, retrying...")
+            end
+            wait(5)
+        end
+    end
 end)
 
-if not Success then
-	warn("\nOrion Library - Failed to load Feather Icons. Error code: " .. Response .. "\n")
-end	
-
-local function GetIcon(IconName)
-	if Icons[IconName] ~= nil then
-		return Icons[IconName]
-	else
-		return nil
-	end
-end   
-
-local Orion = Instance.new("ScreenGui")
-Orion.Name = "Orion"
-if syn then
-	syn.protect_gui(Orion)
-	Orion.Parent = game.CoreGui
-else
-	Orion.Parent = gethui() or game.CoreGui
-end
-
-if gethui then
-	for _, Interface in ipairs(gethui():GetChildren()) do
-		if Interface.Name == Orion.Name and Interface ~= Orion then
-			Interface:Destroy()
-		end
-	end
-else
-	for _, Interface in ipairs(game.CoreGui:GetChildren()) do
-		if Interface.Name == Orion.Name and Interface ~= Orion then
-			Interface:Destroy()
-		end
-	end
-end
-
-function OrionLib:IsRunning()
-	if gethui then
-		return Orion.Parent == gethui()
-	else
-		return Orion.Parent == game:GetService("CoreGui")
-	end
-
-end
-
-local function AddConnection(Signal, Function)
-	if (not OrionLib:IsRunning()) then
-		return
-	end
-	local SignalConnect = Signal:Connect(Function)
-	table.insert(OrionLib.Connections, SignalConnect)
-	return SignalConnect
-end
-
-task.spawn(function()
-	while (OrionLib:IsRunning()) do
-		wait()
-	end
-
-	for _, Connection in next, OrionLib.Connections do
-		Connection:Disconnect()
-	end
+-- Minimize / Restore functionality
+minimize.MouseButton1Click:Connect(function()
+    frame.Visible = false
+    restore.Visible = true
 end)
 
-local function MakeDraggable(DragPoint, Main)
-	pcall(function()
-		local Dragging, DragInput, MousePos, FramePos = false
-		AddConnection(DragPoint.InputBegan, function(Input)
-			if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
-				Dragging = true
-				MousePos = Input.Position
-				FramePos = Main.Position
-
-				Input.Changed:Connect(function()
+restore.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    restore.Visible = false
+end)				Input.Changed:Connect(function()
 					if Input.UserInputState == Enum.UserInputState.End then
 						Dragging = false
 					end
