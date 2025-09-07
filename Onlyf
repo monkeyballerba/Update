@@ -7,8 +7,8 @@ local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
 -- ✅ Settings (10m - 15m)
-local MIN_MS = 10000000 -- 10M
-local MAX_MS = 15000000 -- 15M
+local MIN_MS = 3000000 -- 3M
+local MAX_MS = 4000000 -- 4M
 
 -- Gui Setup
 local gui = Instance.new("ScreenGui")
