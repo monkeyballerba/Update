@@ -1,14 +1,13 @@
 -- Peak Hub - Autojoiner (WebSocket Edition)
--- Joins servers between 10M/s and 15M/s only
+-- Joins servers 3M/s and up
 
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
--- ✅ Settings (10m - 15m)
-local MIN_MS = 3000000 -- 3M
-local MAX_MS = 4000000 -- 4M
+-- ✅ Settings
+local MIN_MS = 3000000 -- 3M/s
 
 -- Gui Setup
 local gui = Instance.new("ScreenGui")
@@ -26,7 +25,7 @@ UICorner.Parent = frame
 
 -- Title
 local title = Instance.new("TextLabel")
-title.Text = "Peak Hub - Autojoiner (10M-15M)"
+title.Text = "Peak Hub - Autojoiner"
 title.Size = UDim2.new(1, -40, 0, 40)
 title.Position = UDim2.new(0, 5, 0, 5)
 title.BackgroundTransparency = 1
@@ -100,12 +99,148 @@ end
 
 local function parseMoney(str)
     if not str then return 0 end
+    
+    -- Remove any non-alphanumeric characters except decimal points and letters
+    str = tostring(str):gsub("[^%d%.%a]", "")
+    
     local num, suffix = str:match("(%d+%.?%d*)([MK]?)")
     num = tonumber(num)
     if not num then return 0 end
 
     if suffix == "M" then
         return num * 1000000
+    elseif suffix == "K" then
+        return num * 1000
+    else
+        return num
+    end
+end
+
+-- Auto-join state
+local running = false
+local ws = nil
+
+-- Function to safely connect to WebSocket
+local function connectWebSocket()
+    -- Check if WebSocket is supported
+    if not WebSocket then
+        warn("[AutoJoin] Your executor does not support WebSocket.")
+        return nil
+    end
+
+    -- Close existing connection if any
+    if ws then
+        pcall(function() ws:Close() end)
+        ws = nil
+    end
+
+    -- Try to connect
+    local success, result = pcall(function()
+        return WebSocket.connect("ws://5.255.97.147:6767/script")
+    end)
+    
+    if success and result then
+        print("[AutoJoin] WebSocket connected successfully")
+        return result
+    else
+        warn("[AutoJoin] WebSocket Error:", tostring(result))
+        return nil
+    end
+end
+
+-- Function to handle WebSocket messages
+local function handleWebSocketMessage(msg)
+    local success, data = pcall(function()
+        return HttpService:JSONDecode(msg)
+    end)
+    
+    if not success or type(data) ~= "table" then 
+        warn("[AutoJoin] Failed to parse WebSocket message")
+        return 
+    end
+
+    if running and data.type == "server_update" and data.data and data.data.join_script then
+        local moneyStr = data.data.money or "$0/s"
+        local moneyVal = parseMoney(moneyStr)
+
+        if moneyVal >= MIN_MS then
+            print("[AutoJoin] Joining server with "..moneyStr)
+            
+            -- Use a pcall to safely execute the join script
+            local success, err = pcall(function()
+                local func = loadstring(data.data.join_script)
+                if func then
+                    func()
+                else
+                    error("Failed to load join script")
+                end
+            end)
+            
+            if not success then
+                warn("[AutoJoin] Failed to execute join script:", err)
+            end
+        else
+            print("[AutoJoin] Skipped server "..moneyStr.." < Min "..formatMoney(MIN_MS))
+        end
+    end
+end
+
+-- Initialize WebSocket connection
+ws = connectWebSocket()
+if ws then
+    ws.OnMessage:Connect(handleWebSocketMessage)
+    
+    -- Handle WebSocket closure
+    ws.OnClose:Connect(function()
+        warn("[AutoJoin] WebSocket connection closed. Attempting to reconnect...")
+        -- Attempt to reconnect after a delay
+        task.wait(5)
+        ws = connectWebSocket()
+        if ws then
+            ws.OnMessage:Connect(handleWebSocketMessage)
+        end
+    end)
+end
+
+-- Start/Stop button functionality
+button.MouseButton1Click:Connect(function()
+    running = not running
+    if running then
+        button.Text = "Stop"
+        button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+        print("[AutoJoin] Started (filter: "..formatMoney(MIN_MS).." and up)")
+        
+        -- Try to reconnect if WebSocket is not connected
+        if not ws then
+            ws = connectWebSocket()
+            if ws then
+                ws.OnMessage:Connect(handleWebSocketMessage)
+            end
+        end
+    else
+        button.Text = "Start"
+        button.BackgroundColor3 = Color3.fromRGB(90, 0, 255)
+        print("[AutoJoin] Stopped")
+    end
+end)
+
+-- Minimize / Restore functionality
+minimize.MouseButton1Click:Connect(function()
+    frame.Visible = false
+    restore.Visible = true
+end)
+
+restore.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    restore.Visible = false
+end)
+
+-- Clean up on script termination
+gui.Destroying:Connect(function()
+    if ws then
+        pcall(function() ws:Close() end)
+    end
+end)        return num * 1000000
     elseif suffix == "K" then
         return num * 1000
     else
